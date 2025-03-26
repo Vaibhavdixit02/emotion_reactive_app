@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion-Reactive Interface</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            transition: background-color 1s ease;
+            background-color: {{ colors.background }};
+            color: {{ colors.text }};
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        h1, h2, h3 {
+            color: {{ colors.text }};
+        }
+        .content {
+            display: flex;
+            gap: 20px;
+        }
+        .webcam-container {
+            flex: 2;
+        }
+        .emotion-content {
+            flex: 1;
+            padding: 20px;
+            border: 1px solid {{ colors.border }};
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.7);
+        }
+        #webcam {
+            width: 100%;
+            border: 1px solid {{ colors.border }};
+            border-radius: 8px;
+        }
+        #canvas {
+            display: none;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            background-color: {{ colors.text }};
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: rgba(255, 255, 255, 0.7);
+        }
+        .recommendations {
+            margin-top: 20px;
+        }
+        .recommendations ul {
+            padding-left: 20px;
+        }
+        .debug {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .confidence-meter {
+            margin-top: 10px;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .confidence-bar {
+            height: 100%;
+            width: {{ confidence * 10 }}%;
+            background-color: {{ colors.text }};
+            transition: width 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Emotion-Reactive Interface</h1>
+        </header>
+        
+        <div class="content">
+            <div class="webcam-container">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+                
+                <div class="controls">
+                    <button id="startBtn">Start Camera</button>
+                    <button id="captureBtn" disabled>Analyze Emotion</button>
+                    <button id="autoBtn">Toggle Auto-Capture</button>
+                </div>
+                
+                <div class="status" id="status">
+                    Camera is off. Click "Start Camera" to begin.
+                </div>
+                
+                <div class="debug" id="debug">
+                    <strong>Debug Log:</strong>
+                    <div id="debugLog"></div>
+                </div>
+            </div>
+            
+            <div class="emotion-content">
+                <h2>Current Emotion: <span id="emotionDisplay">{{ emotion|capitalize }}</span></h2>
+                
+                <div class="confidence-meter">
+                    <div class="confidence-bar" id="confidenceBar"></div>
+                </div>
+                <p>Confidence: <span id="confidenceDisplay">{{ confidence }}/10</span></p>
+                
+                <p id="emotionMessage">{{ content.message }}</p>
+                
+                <div class="recommendations">
+                    <h3>Recommendations:</h3>
+                    <ul id="recommendationsList">
+                        {% for recommendation in content.recommendations %}
+                            <li>{{ recommendation }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // DOM elements
+        const webcamElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('canvas');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const autoBtn = document.getElementById('autoBtn');
+        const statusElement = document.getElementById('status');
+        const debugLog = document.getElementById('debugLog');
+        const emotionDisplay = document.getElementById('emotionDisplay');
+        const confidenceDisplay = document.getElementById('confidenceDisplay');
+        const confidenceBar = document.getElementById('confidenceBar');
+        const emotionMessage = document.getElementById('emotionMessage');
+        const recommendationsList = document.getElementById('recommendationsList');
+        
+        // Variables
+        let streaming = false;
+        let autoCapture = false;
+        let captureInterval = null;
+        const AUTO_CAPTURE_INTERVAL = 3000; // 3 seconds
+        
+        // Add to debug log
+        function addDebugLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog.innerHTML += `<div>${timestamp} - ${message}</div>`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+        
+        // Start webcam
+        startBtn.addEventListener('click', async () => {
+            if (streaming) {
+                // Stop webcam
+                const stream = webcamElement.srcObject;
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+                webcamElement.srcObject = null;
+                streaming = false;
+                startBtn.textContent = 'Start Camera';
+                captureBtn.disabled = true;
+                statusElement.textContent = 'Camera is off.';
+                addDebugLog('Camera stopped');
+                
+                // Clear auto-capture
+                if (captureInterval) {
+                    clearInterval(captureInterval);
+                    captureInterval = null;
+                }
+            } else {
+                try {
+                    // Start webcam
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { width: 640, height: 480 }, 
+                        audio: false 
+                    });
+                    webcamElement.srcObject = stream;
+                    streaming = true;
+                    startBtn.textContent = 'Stop Camera';
+                    captureBtn.disabled = false;
+                    statusElement.textContent = 'Camera is on. Click "Analyze Emotion" to detect your emotion.';
+                    addDebugLog('Camera started');
+                    
+                    // Start auto-capture if enabled
+                    if (autoCapture) {
+                        startAutoCapture();
+                    }
+                } catch (error) {
+                    addDebugLog(`Error starting camera: ${error.message}`);
+                    statusElement.textContent = `Error: ${error.message}`;
+                }
+            }
+        });
+        
+        // Capture and analyze frame
+        captureBtn.addEventListener('click', captureAndAnalyze);
+        
+        // Toggle auto-capture
+        autoBtn.addEventListener('click', () => {
+            autoCapture = !autoCapture;
+            
+            if (autoCapture) {
+                autoBtn.textContent = 'Stop Auto-Capture';
+                addDebugLog('Auto-capture enabled');
+                
+                if (streaming) {
+                    startAutoCapture();
+                }
+            } else {
+                autoBtn.textContent = 'Start Auto-Capture';
+                addDebugLog('Auto-capture disabled');
+                
+                if (captureInterval) {
+                    clearInterval(captureInterval);
+                    captureInterval = null;
+                }
+            }
+        });
+        
+        // Start auto-capture
+        function startAutoCapture() {
+            if (captureInterval) {
+                clearInterval(captureInterval);
+            }
+            
+            captureInterval = setInterval(captureAndAnalyze, AUTO_CAPTURE_INTERVAL);
+            addDebugLog(`Auto-capture started (every ${AUTO_CAPTURE_INTERVAL/1000}s)`);
+        }
+        
+        // Capture and analyze frame
+        async function captureAndAnalyze() {
+            if (!streaming) return;
+            
+            try {
+                // Draw webcam frame to canvas
+                canvasElement.width = webcamElement.videoWidth;
+                canvasElement.height = webcamElement.videoHeight;
+                const context = canvasElement.getContext('2d');
+                context.drawImage(webcamElement, 0, 0, canvasElement.width, canvasElement.height);
+                
+                // Get data URL
+                const imageData = canvasElement.toDataURL('image/jpeg');
+                
+                // Update status
+                statusElement.textContent = 'Analyzing emotion...';
+                addDebugLog('Capturing frame and sending for analysis');
+                
+                // Send to server
+                const response = await fetch('/analyze_emotion', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ image: imageData })
+                });
+                
+                // Parse response
+                const result = await response.json();
+                
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                
+                // Update UI with emotion result
+                updateUI(result);
+                addDebugLog(`Analysis complete: ${result.emotion} (${result.confidence}/10)`);
+                statusElement.textContent = `Detected: ${result.emotion} (${result.confidence}/10)`;
+                
+            } catch (error) {
+                addDebugLog(`Error analyzing: ${error.message}`);
+                statusElement.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Update UI with emotion result
+        function updateUI(result) {
+            // Update emotion display
+            emotionDisplay.textContent = result.emotion.charAt(0).toUpperCase() + result.emotion.slice(1);
+            
+            // Update confidence
+            confidenceDisplay.textContent = `${result.confidence}/10`;
+            confidenceBar.style.width = `${result.confidence * 10}%`;
+            
+            // Update colors
+            document.body.style.backgroundColor = result.colors.background;
+            document.body.style.color = result.colors.text;
+            
+            const headings = document.querySelectorAll('h1, h2, h3');
+            headings.forEach(heading => {
+                heading.style.color = result.colors.text;
+            });
+            
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(button => {
+                button.style.backgroundColor = result.colors.text;
+            });
+            
+            confidenceBar.style.backgroundColor = result.colors.text;
+            
+            // Update content
+            emotionMessage.textContent = result.content.message;
+            
+            // Update recommendations
+            recommendationsList.innerHTML = '';
+            result.content.recommendations.forEach(recommendation => {
+                const li = document.createElement('li');
+                li.textContent = recommendation;
+                recommendationsList.appendChild(li);
+            });
+        }
+        
+        // Initialize
+        addDebugLog('Application initialized');
+    </script>
+</body>
+</html>

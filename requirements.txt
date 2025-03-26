@@ -1,0 +1,6 @@
+flask
+opencv-python
+google-generativeai
+pillow
+python-dotenv
+numpy
