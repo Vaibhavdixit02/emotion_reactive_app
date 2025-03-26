@@ -110,9 +110,3 @@ emotion_reactive_app/
 ## License
 
 [MIT License](LICENSE)
-
-## Acknowledgements
-
-- Google Gemini API for emotion analysis
-- Flask web framework
-- HTML5 Webcam API for browser camera integration
